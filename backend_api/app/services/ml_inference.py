@@ -24,7 +24,7 @@ try:
 
     scorer = StatisticalScorer(
         baselines        = population_baselines,
-        panic_thresholds = None,
+        panics = None,
     )
 
     logger.info(
@@ -48,25 +48,21 @@ def _encode_biomarker(code: str) -> int:
         cleaned = str(code).strip().upper()
         if cleaned in bio_encoder.classes_:
             return int(bio_encoder.transform([cleaned])[0])
-        raise ValueError
+        raise ValueError  # Manually triggers the fallback path if token is unseen
     except (ValueError, KeyError):
-        logger.warning(f"Unseen biomarker: '{code}' → falling back to default token 0")
-        
+        logger.warning(f"Unseen biomarker: '{code}' → mapped to UNKNOWN fallback.")
         if "UNKNOWN" in bio_encoder.classes_:
             return int(bio_encoder.transform(["UNKNOWN"])[0])
         return 0
-
 
 def _encode_panel(panel: str) -> int:
     try:
         cleaned = str(panel).strip().upper()
         if cleaned in panel_encoder.classes_:
             return int(panel_encoder.transform([cleaned])[0])
-        raise ValueError
+        raise ValueError  # Manually triggers the fallback path if token is unseen
     except (ValueError, KeyError):
-        logger.warning(f"Unseen panel: '{panel}' → falling back to default token 0")
-        
-        # Fix 2: Explicitly check if UNKNOWN was fitted, else fall back to 0
+        logger.warning(f"Unseen panel: '{panel}' → mapped to UNKNOWN fallback.")
         if "UNKNOWN" in panel_encoder.classes_:
             return int(panel_encoder.transform(["UNKNOWN"])[0])
         return 0
