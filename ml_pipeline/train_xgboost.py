@@ -8,7 +8,7 @@ from sklearn.metrics import classification_report
 from xgboost import XGBClassifier
 
 
-df = pd.read_csv("ml_pipeline/data/rely_lis_model_features_v6.csv")
+df = pd.read_csv("ml_pipeline/data/rely_lis_model_features_v10.csv")
 
 TARGET_COL = "anomaly_label_text"
 
