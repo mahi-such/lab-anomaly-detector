@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Bell, Plus, X, BookOpen, BarChart2, RefreshCw } from 'lucide-react';
+import { Bell, Plus, X, BookOpen, BarChart2, RefreshCw, Info } from 'lucide-react';
 
 export default function Dashboard() {
   // --- STATE MANAGEMENT ---
@@ -59,7 +59,7 @@ export default function Dashboard() {
         biomarker_code: valueUpper,
         ref_min_parsed: baseline.ref_min_typical ?? '',
         ref_max_parsed: baseline.ref_max_typical ?? '',
-        test_panel: autoPanel, // <--- THIS ENSURES THE CORRECT PANEL IS SENT
+        test_panel: autoPanel, 
       }));
       return;
     }
@@ -93,7 +93,7 @@ export default function Dashboard() {
       const data = await response.json();
       if (!response.ok) throw new Error(data.detail || 'Analysis failed.');
 
-      const result = data.data || data; // adjusted in case payload is directly returned
+      const result = data.data || data; 
       const colorMap = { CRITICAL: 'red', ALERT: 'orange', WATCH: 'blue', NORMAL: 'green' };
 
       const newFeedItem = {
@@ -106,6 +106,8 @@ export default function Dashboard() {
         value: formData.result_value_num,
         unit: 'units',
         color: colorMap[result.final_label] || 'blue',
+        // NEW: Capture the exact clinical justification from the AI backend
+        message: result.alert_message || `AI Prediction: ${result.ml_prediction} (Reason: ${result.decision_reason})`,
       };
 
       setRecentResults((prev) => [newFeedItem, ...prev]);
@@ -170,11 +172,28 @@ export default function Dashboard() {
                 {recentResults.map((result) => {
                   const styles = getColorClasses(result.color);
                   return (
-                    <div key={result.id} className={`bg-white border ${styles.border} border-l-4 rounded-xl p-5 shadow flex items-center justify-between`}>
-                      <div className="w-1/4"><p className="text-[10px] font-black text-blue-400 uppercase">Classification</p><span className={`px-2 py-1 text-[10px] font-black uppercase rounded ${styles.badge}`}>{result.status}</span></div>
-                      <div className="w-1/4"><p className="text-[10px] font-black text-blue-400 uppercase">Biomarker</p><p className="font-black">{result.biomarker}</p><p className="text-[10px] text-blue-500 uppercase">{result.panel}</p></div>
-                      <div className="w-1/4 text-center"><p className="text-[10px] font-black text-blue-400 uppercase">Statistical Z-Score</p><p className="font-bold font-mono">{result.zScore}</p></div>
-                      <div className="w-1/4 text-right"><p className="text-[10px] font-black text-blue-400 uppercase">Measured Result</p><p className="text-xl font-black">{result.value} <span className="text-xs font-normal">{result.unit}</span></p></div>
+                    // NEW: Changed to flex-col to stack the top metrics and the bottom justification
+                    <div key={result.id} className={`bg-white border ${styles.border} border-l-4 rounded-xl p-5 shadow flex flex-col gap-4`}>
+                      
+                      {/* Top Row: Metrics */}
+                      <div className="flex items-center justify-between">
+                        <div className="w-1/4"><p className="text-[10px] font-black text-blue-400 uppercase">Classification</p><span className={`px-2 py-1 text-[10px] font-black uppercase rounded ${styles.badge}`}>{result.status}</span></div>
+                        <div className="w-1/4"><p className="text-[10px] font-black text-blue-400 uppercase">Biomarker</p><p className="font-black">{result.biomarker}</p><p className="text-[10px] text-blue-500 uppercase">{result.panel}</p></div>
+                        <div className="w-1/4 text-center"><p className="text-[10px] font-black text-blue-400 uppercase">Statistical Z-Score</p><p className="font-bold font-mono">{result.zScore}</p></div>
+                        <div className="w-1/4 text-right"><p className="text-[10px] font-black text-blue-400 uppercase">Measured Result</p><p className="text-xl font-black">{result.value} <span className="text-xs font-normal">{result.unit}</span></p></div>
+                      </div>
+
+                      {/* Bottom Row: AI Justification Panel */}
+                      <div className="bg-slate-50 border border-slate-100 rounded-lg p-3 flex items-start gap-3 mt-2">
+                        <Info size={16} className="text-blue-400 mt-0.5 shrink-0" />
+                        <div>
+                          <p className="text-[10px] font-black text-blue-900/40 uppercase mb-1">AI Clinical Justification</p>
+                          <p className="text-sm font-medium text-blue-950/80 leading-relaxed">
+                            {result.message}
+                          </p>
+                        </div>
+                      </div>
+
                     </div>
                   );
                 })}
