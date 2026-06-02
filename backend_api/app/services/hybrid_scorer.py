@@ -94,23 +94,16 @@ class HybridScorer:
     #   ml_conf < SOFT_DOWNGRADE_CONF
     #   stat_sev == "NORMAL"
     #   |delta| < SOFT_DOWNGRADE_DELTA
-    SOFT_DOWNGRADE_CONF  : float = 0.50
-    SOFT_DOWNGRADE_DELTA : float = 1.0
+    SOFT_DOWNGRADE_CONF           : float = 0.50
+    SOFT_DOWNGRADE_RELATIVE_DELTA : float = 0.10
 
-    # Rule 3: trust model when CRITICAL probability is this high
-    HIGH_CONF_THRESHOLD : float = 0.85
+    HIGH_CONF_THRESHOLD           : float = 0.85
 
-    # Rule 4: downgrade CRITICAL when BOTH conditions are true
-    #   delta < DOWNGRADE_DELTA  (barely outside ref range)
-    #   |z| < DOWNGRADE_Z        (statistically near-normal)
-    DOWNGRADE_DELTA     : float = 2.0
-    DOWNGRADE_Z         : float = 1.5
+    DOWNGRADE_RELATIVE_DELTA      : float = 0.30
+    DOWNGRADE_Z                   : float = 1.5
 
-    # Rule 5: escalate NORMAL/WATCH when EITHER condition is true
-    #   |z| >= ESCALATE_Z        (statistically very unusual)
-    #   |delta| >= ESCALATE_DELTA (far outside ref range)
-    ESCALATE_Z          : float = 2.5
-    ESCALATE_DELTA      : float = 3.0
+    ESCALATE_Z                    : float = 2.5
+    ESCALATE_RELATIVE_DELTA       : float = 0.75
 
     def decide(self, ml_output: dict) -> HybridResult:
         """
@@ -125,6 +118,13 @@ class HybridScorer:
         is_panic   = ml_output["is_panic"]
         ml_conf    = ml_output["confidence"]
         ml_crit_p  = ml_probs.get("CRITICAL", 0.0)
+        ref_min = ml_output.get("ref_min")
+        ref_max = ml_output.get("ref_max")
+
+        # Safely calculate scale-invariant deviation. Defaults to None to prevent false triggers.
+        relative_delta = None
+        if ref_min is not None and ref_max is not None and ref_max > ref_min:
+            relative_delta = abs(delta) / (ref_max - ref_min)
 
         #  Rule 1: Panic override 
         # ml_inference already returned early for panic, but
@@ -147,9 +147,8 @@ class HybridScorer:
         # outside the reference range. Downgrade to preserve visibility
         # without triggering a false alarm.
         if ml_pred in ("ALERT", "CRITICAL"):
-            if (ml_conf < self.SOFT_DOWNGRADE_CONF and 
-                stat_sev == "NORMAL" and 
-                abs(delta) < self.SOFT_DOWNGRADE_DELTA):
+            d_small = relative_delta is not None and relative_delta < self.SOFT_DOWNGRADE_RELATIVE_DELTA
+            if ml_conf < self.SOFT_DOWNGRADE_CONF and stat_sev == "NORMAL" and d_small:
                 return self._build(
                     label   = "WATCH",
                     conf    = ml_conf, # Preserve original ML confidence
@@ -183,7 +182,7 @@ class HybridScorer:
         # Both conditions must be true to downgrade.
         if ml_pred == "CRITICAL":
             z_small = z_score is None or abs(z_score) < self.DOWNGRADE_Z
-            d_small = abs(delta) < self.DOWNGRADE_DELTA
+            d_small = relative_delta is not None and relative_delta < self.DOWNGRADE_RELATIVE_DELTA
             if z_small and d_small:
                 return self._build(
                     label   = "ALERT",
@@ -213,7 +212,7 @@ class HybridScorer:
         # deviation. Either signal alone is enough to escalate.
         if ml_pred in ("NORMAL", "WATCH"):
             z_large = z_score is not None and abs(z_score) >= self.ESCALATE_Z
-            d_large = abs(delta) >= self.ESCALATE_DELTA
+            d_large = relative_delta is not None and relative_delta >= self.ESCALATE_RELATIVE_DELTA
             if z_large or d_large:
                 return self._build(
                     label   = "ALERT",

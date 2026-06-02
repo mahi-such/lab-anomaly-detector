@@ -112,6 +112,8 @@ def predict_anomaly(data: dict) -> dict:
         "delta": stat_result.delta,
         "is_panic": stat_result.is_panic,
         "confidence": confidence,
+        "ref_min": ref_min,
+        "ref_max": ref_max
     }
 
     return hybrid_scorer.decide(ml_output).to_dict()
