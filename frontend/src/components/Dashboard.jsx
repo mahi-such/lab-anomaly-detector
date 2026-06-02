@@ -15,7 +15,7 @@ export default function Dashboard() {
     result_value_num: '',
     ref_min_parsed: '',
     ref_max_parsed: '',
-    test_panel: 'CBC',
+    test_panel: '', // Default to empty so it autofills cleanly
   });
 
   // --- DATA FETCHING ---
@@ -51,7 +51,7 @@ export default function Dashboard() {
       const baseline = baselines[value] || {};
       const valueUpper = value.toUpperCase();
       
-      // FIX: Dynamically determine the test panel based on the selected biomarker
+      // Dynamically determine the test panel based on the selected biomarker
       const autoPanel = baseline.panel || (valueUpper.includes('_') ? valueUpper.split('_')[0] : 'GENERAL');
 
       setFormData((prev) => ({
@@ -106,7 +106,6 @@ export default function Dashboard() {
         value: formData.result_value_num,
         unit: 'units',
         color: colorMap[result.final_label] || 'blue',
-        // NEW: Capture the exact clinical justification from the AI backend
         message: result.alert_message || `AI Prediction: ${result.ml_prediction} (Reason: ${result.decision_reason})`,
       };
 
@@ -172,7 +171,6 @@ export default function Dashboard() {
                 {recentResults.map((result) => {
                   const styles = getColorClasses(result.color);
                   return (
-                    // NEW: Changed to flex-col to stack the top metrics and the bottom justification
                     <div key={result.id} className={`bg-white border ${styles.border} border-l-4 rounded-xl p-5 shadow flex flex-col gap-4`}>
                       
                       {/* Top Row: Metrics */}
@@ -206,12 +204,26 @@ export default function Dashboard() {
               <h2 className="text-3xl font-black text-blue-950 mb-6">Reference Library</h2>
               <table className="w-full text-left">
                 <thead>
-                  <tr className="text-[10px] uppercase text-blue-400 font-bold tracking-widest border-b border-blue-50"><th className="pb-4">Biomarker</th><th className="pb-4">Min Typical</th><th className="pb-4">Max Typical</th></tr>
+                  <tr className="text-[10px] uppercase text-blue-400 font-bold tracking-widest border-b border-blue-50">
+                    <th className="pb-4">Biomarker</th>
+                    <th className="pb-4">Panel</th>
+                    <th className="pb-4">Min Typical</th>
+                    <th className="pb-4">Max Typical</th>
+                  </tr>
                 </thead>
                 <tbody className="divide-y divide-blue-50">
-                  {Object.entries(baselines).map(([k, v]) => (
-                    <tr key={k} className="text-sm font-bold text-blue-950 hover:bg-blue-50/50"><td className="py-4">{k}</td><td className="py-4 font-mono">{v.ref_min_typical ?? '—'}</td><td className="py-4 font-mono">{v.ref_max_typical ?? '—'}</td></tr>
-                  ))}
+                  {Object.entries(baselines).map(([k, v]) => {
+                    const panelName = v.panel || (k.includes('_') ? k.split('_')[0] : 'GENERAL');
+                    
+                    return (
+                      <tr key={k} className="text-sm font-bold text-blue-950 hover:bg-blue-50/50">
+                        <td className="py-4">{k}</td>
+                        <td className="py-4 text-[11px] font-black text-blue-400 uppercase tracking-wide">{panelName}</td>
+                        <td className="py-4 font-mono">{v.ref_min_typical ?? '—'}</td>
+                        <td className="py-4 font-mono">{v.ref_max_typical ?? '—'}</td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -225,6 +237,7 @@ export default function Dashboard() {
             <button onClick={() => setIsAnalyzerOpen(false)} className="mb-6 text-blue-950"><X /></button>
             <h3 className="text-2xl font-black mb-6">New Laboratory Analysis</h3>
             <form onSubmit={handleAnalyze} className="space-y-5">
+              
               <div className="space-y-1">
                 <label className="text-[10px] font-black uppercase text-blue-900/60">Biomarker Identification Code</label>
                 <select name="biomarker_code" value={formData.biomarker_code} onChange={handleInputChange} className="w-full p-3 border rounded-lg bg-white font-bold" required>
@@ -232,14 +245,23 @@ export default function Dashboard() {
                   {Object.keys(baselines).sort().map((code) => <option key={code} value={code}>{code}</option>)}
                 </select>
               </div>
+
+              {/* NEW: Test Panel Auto-fill field added here */}
+              <div className="space-y-1">
+                <label className="text-[10px] font-black uppercase text-blue-900/60">Test Panel</label>
+                <input type="text" name="test_panel" placeholder="e.g. CBC, VITAMIN" value={formData.test_panel} onChange={handleInputChange} className="w-full p-3 border rounded-lg uppercase" required />
+              </div>
+
               <div className="space-y-1">
                 <label className="text-[10px] font-black uppercase text-blue-900/60">Numeric Result Value</label>
                 <input type="number" step="0.01" name="result_value_num" placeholder="0.00" value={formData.result_value_num} onChange={handleInputChange} className="w-full p-3 border rounded-lg" required />
               </div>
+              
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1"><label className="text-[10px] font-black uppercase text-blue-900/60">Ref Min</label><input type="number" step="0.01" name="ref_min_parsed" placeholder="Min" value={formData.ref_min_parsed} onChange={handleInputChange} className="w-full p-3 border rounded-lg" /></div>
                 <div className="space-y-1"><label className="text-[10px] font-black uppercase text-blue-900/60">Ref Max</label><input type="number" step="0.01" name="ref_max_parsed" placeholder="Max" value={formData.ref_max_parsed} onChange={handleInputChange} className="w-full p-3 border rounded-lg" /></div>
               </div>
+              
               <button type="submit" disabled={loading} className="w-full bg-yellow-400 py-4 rounded-xl font-black text-blue-950 hover:bg-yellow-300 mt-4">
                 {loading ? 'Running Detection...' : 'Run Anomaly Detection'}
               </button>
