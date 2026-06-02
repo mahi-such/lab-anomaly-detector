@@ -49,11 +49,17 @@ export default function Dashboard() {
 
     if (name === 'biomarker_code') {
       const baseline = baselines[value] || {};
+      const valueUpper = value.toUpperCase();
+      
+      // FIX: Dynamically determine the test panel based on the selected biomarker
+      const autoPanel = baseline.panel || (valueUpper.includes('_') ? valueUpper.split('_')[0] : 'GENERAL');
+
       setFormData((prev) => ({
         ...prev,
-        biomarker_code: value.toUpperCase(),
+        biomarker_code: valueUpper,
         ref_min_parsed: baseline.ref_min_typical ?? '',
         ref_max_parsed: baseline.ref_max_typical ?? '',
+        test_panel: autoPanel, // <--- THIS ENSURES THE CORRECT PANEL IS SENT
       }));
       return;
     }
@@ -87,7 +93,7 @@ export default function Dashboard() {
       const data = await response.json();
       if (!response.ok) throw new Error(data.detail || 'Analysis failed.');
 
-      const result = data.data;
+      const result = data.data || data; // adjusted in case payload is directly returned
       const colorMap = { CRITICAL: 'red', ALERT: 'orange', WATCH: 'blue', NORMAL: 'green' };
 
       const newFeedItem = {
