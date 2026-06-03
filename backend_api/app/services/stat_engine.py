@@ -22,7 +22,7 @@ PANIC_THRESHOLDS: dict[str, dict] = {
     # Glucose
     "GLUCOSE_RND": {"low": 40.0,  "high": 500.0,  "unit": "mg/dL",   "note": "Hypoglycaemia / hyperglycaemic crisis"},
     "GLUCOSE_FBS": {"low": 40.0,  "high": 500.0,  "unit": "mg/dL",   "note": "Fasting glucose panic"},
-    "GLUCOSE":     {"low": 40.0,  "high": 500.0,  "unit": "mg/dL",   "note": "Alt code"},
+    "GLUCOSE":     {"low": 40.0,  "high": 500.0,  "unit": "mg/dL",   "note": "Hypoglycaemia / hyperglycaemic crisis"},
     # Renal
     "CREATININE":  {"low": None,  "high": 10.0,   "unit": "mg/dL",   "note": "Acute renal failure"},
     "CREAT":       {"low": None,  "high": 10.0,   "unit": "mg/dL",   "note": "Alt code"},
@@ -47,9 +47,10 @@ PANIC_THRESHOLDS: dict[str, dict] = {
     "PT":          {"low": None,  "high": 60.0,   "unit": "sec",     "note": "Coagulopathy"},
 }
 
+
 @dataclass
 class LabResultPayload:
-    
+
     biomarker_code:   str
     result_value_num: float
     ref_min:          float
@@ -60,7 +61,7 @@ class LabResultPayload:
 
 @dataclass
 class StatisticalScore:
-    
+
     biomarker_code:          str
     value:                   float
     z_score:                 Optional[float]
@@ -72,6 +73,7 @@ class StatisticalScore:
 
     def to_dict(self) -> dict:
         return asdict(self)
+
 
 def compute_zscore(
     biomarker_code: str,
@@ -104,7 +106,7 @@ def compute_delta(
     ref_min: float,
     ref_max: float,
 ) -> float:
-    
+
     if value < ref_min:
         return round(value - ref_min, 4)
     if value > ref_max:
@@ -117,7 +119,7 @@ def is_panic_value(
     value: float,
     panic_thresholds: dict = None,
 ) -> bool:
-   
+
     if panic_thresholds is None:
         panic_thresholds = PANIC_THRESHOLDS
     code = str(biomarker_code).strip().upper()
@@ -132,8 +134,9 @@ def is_panic_value(
         return True
     return False
 
+
 class StatisticalScorer:
- 
+
     _SEVERITY_BANDS = [
         (0.0, 1.0,          "NORMAL"),
         (1.0, 2.0,          "MILD"),
@@ -146,7 +149,7 @@ class StatisticalScorer:
         baselines: dict,
         panics: dict = None,
     ) -> None:
-  
+
         self.baselines: dict = baselines
         self.panics: dict    = panics if panics is not None else PANIC_THRESHOLDS
 
@@ -156,7 +159,7 @@ class StatisticalScorer:
         json_path: str,
         panics: dict = None,
     ) -> "StatisticalScorer":
-    
+
         with open(json_path) as f:
             baselines = json.load(f)
         return cls(baselines=baselines, panics=panics)
@@ -180,7 +183,18 @@ class StatisticalScorer:
         z        = compute_zscore(code, value, self.baselines)
         delta    = compute_delta(value, payload.ref_min, payload.ref_max)
         panic    = is_panic_value(code, value, self.panics)
-        severity = self._severity(z, panic)
+
+        # SURGICAL FIX: pass delta + boundaries into _severity
+        # so both the Z-score route and the clinical boundary
+        # route run. Previously delta was computed but never used.
+        severity = self._severity(
+            z_score=z,
+            delta=delta,
+            value=value,
+            ref_min=payload.ref_min,
+            ref_max=payload.ref_max,
+            panic=panic,
+        )
 
         return StatisticalScore(
             biomarker_code          = code,
@@ -207,13 +221,56 @@ class StatisticalScorer:
         """
         return [self.score(p) for p in payloads]
 
-    def _severity(self, z_score: Optional[float], panic: bool) -> str:
+    def _severity(
+        self,
+        z_score: Optional[float],
+        delta: float,
+        value: float,
+        ref_min: float,
+        ref_max: float,
+        panic: bool,
+    ) -> str:
         if panic:
             return "PANIC"
-        if z_score is None:
-            return "UNKNOWN"
-        abs_z = abs(z_score)
-        for lo, hi, label in self._SEVERITY_BANDS:
-            if lo <= abs_z < hi:
-                return label
-        return "SEVERE"
+
+        # Route 1 — population Z-score
+        # Defaults to UNKNOWN when no baseline exists.
+        # Previously this short-circuited the entire method,
+        # meaning biomarkers without baselines never got delta-scored.
+        z_severity = "UNKNOWN"
+        if z_score is not None:
+            abs_z = abs(z_score)
+            for lo, hi, label in self._SEVERITY_BANDS:
+                if lo <= abs_z < hi:
+                    z_severity = label
+                    break
+            else:
+                z_severity = "SEVERE"
+
+        # Route 2 — percentage breach of the crossed boundary.
+        # Fires even when no population baseline exists,
+        # ensuring reference-range violations are never silently ignored.
+        delta_severity = "NORMAL"
+        if delta != 0.0:
+            boundary = ref_min if value < ref_min else ref_max
+            if boundary > 0:
+                delta_pct = abs(delta) / boundary
+                if delta_pct <= 0.15:
+                    delta_severity = "MILD"
+                elif delta_pct <= 0.35:
+                    delta_severity = "MODERATE"
+                else:
+                    delta_severity = "SEVERE"
+
+        # Arbitrate — take the higher risk tier from either route.
+        # UNKNOWN and NORMAL are ranked equally at 0 so that a
+        # missing baseline never suppresses a delta-based finding.
+        severity_rank = {
+            "UNKNOWN":  0,
+            "NORMAL":   0,
+            "MILD":     1,
+            "MODERATE": 2,
+            "SEVERE":   3,
+            "PANIC":    4,
+        }
+        return max(z_severity, delta_severity, key=lambda s: severity_rank[s])
