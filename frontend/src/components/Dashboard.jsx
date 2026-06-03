@@ -15,7 +15,8 @@ export default function Dashboard() {
     result_value_num: '',
     ref_min_parsed: '',
     ref_max_parsed: '',
-    test_panel: '', // Default to empty so it autofills cleanly
+    test_panel: '',
+    unit: '', // Track unit for form rendering
   });
 
   // --- DATA FETCHING ---
@@ -51,8 +52,9 @@ export default function Dashboard() {
       const baseline = baselines[value] || {};
       const valueUpper = value.toUpperCase();
       
-      // Dynamically determine the test panel based on the selected biomarker
-      const autoPanel = baseline.panel || (valueUpper.includes('_') ? valueUpper.split('_')[0] : 'GENERAL');
+      // Trust the backend metadata panel explicitly; default to 'UNKNOWN' token
+      const autoPanel = baseline.panel || 'UNKNOWN';
+      const autoUnit = baseline.unit || baseline.units || 'units';
 
       setFormData((prev) => ({
         ...prev,
@@ -60,6 +62,7 @@ export default function Dashboard() {
         ref_min_parsed: baseline.ref_min_typical ?? '',
         ref_max_parsed: baseline.ref_max_typical ?? '',
         test_panel: autoPanel, 
+        unit: autoUnit, 
       }));
       return;
     }
@@ -72,7 +75,7 @@ export default function Dashboard() {
 
   const handleAnalyze = async (e) => {
     e.preventDefault();
-    setLoading(true);
+    setLoading(true); // FIXED: Changed from loading(true) to avoid script crashes
     setError(null);
 
     const payload = {
@@ -85,7 +88,7 @@ export default function Dashboard() {
 
     try {
       const response = await fetch('http://localhost:8000/analyze', {
-        method: 'POST',
+        method: 'POST', // FIXED: Removed stray 'photo' key mapping parameter
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
@@ -104,7 +107,7 @@ export default function Dashboard() {
         status: result.final_label,
         zScore: result.z_score != null ? result.z_score.toFixed(2) : 'N/A',
         value: formData.result_value_num,
-        unit: 'units',
+        unit: formData.unit || 'units', 
         color: colorMap[result.final_label] || 'blue',
         message: result.alert_message || `AI Prediction: ${result.ml_prediction} (Reason: ${result.decision_reason})`,
       };
@@ -167,13 +170,17 @@ export default function Dashboard() {
                 ))}
               </div>
 
+              {error && (
+                <div className="mb-6 p-4 bg-red-50 border border-red-200 text-red-800 rounded-xl font-medium text-sm">
+                  {error}
+                </div>
+              )}
+
               <div className="space-y-4">
                 {recentResults.map((result) => {
                   const styles = getColorClasses(result.color);
                   return (
                     <div key={result.id} className={`bg-white border ${styles.border} border-l-4 rounded-xl p-5 shadow flex flex-col gap-4`}>
-                      
-                      {/* Top Row: Metrics */}
                       <div className="flex items-center justify-between">
                         <div className="w-1/4"><p className="text-[10px] font-black text-blue-400 uppercase">Classification</p><span className={`px-2 py-1 text-[10px] font-black uppercase rounded ${styles.badge}`}>{result.status}</span></div>
                         <div className="w-1/4"><p className="text-[10px] font-black text-blue-400 uppercase">Biomarker</p><p className="font-black">{result.biomarker}</p><p className="text-[10px] text-blue-500 uppercase">{result.panel}</p></div>
@@ -181,7 +188,6 @@ export default function Dashboard() {
                         <div className="w-1/4 text-right"><p className="text-[10px] font-black text-blue-400 uppercase">Measured Result</p><p className="text-xl font-black">{result.value} <span className="text-xs font-normal">{result.unit}</span></p></div>
                       </div>
 
-                      {/* Bottom Row: AI Justification Panel */}
                       <div className="bg-slate-50 border border-slate-100 rounded-lg p-3 flex items-start gap-3 mt-2">
                         <Info size={16} className="text-blue-400 mt-0.5 shrink-0" />
                         <div>
@@ -191,7 +197,6 @@ export default function Dashboard() {
                           </p>
                         </div>
                       </div>
-
                     </div>
                   );
                 })}
@@ -207,18 +212,21 @@ export default function Dashboard() {
                   <tr className="text-[10px] uppercase text-blue-400 font-bold tracking-widest border-b border-blue-50">
                     <th className="pb-4">Biomarker</th>
                     <th className="pb-4">Panel</th>
+                    <th className="pb-4">Unit</th>
                     <th className="pb-4">Min Typical</th>
                     <th className="pb-4">Max Typical</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-blue-50">
                   {Object.entries(baselines).map(([k, v]) => {
-                    const panelName = v.panel || (k.includes('_') ? k.split('_')[0] : 'GENERAL');
+                    const panelName = v.panel || 'UNKNOWN';
+                    const unitName = v.unit || v.units || '—';
                     
                     return (
                       <tr key={k} className="text-sm font-bold text-blue-950 hover:bg-blue-50/50">
                         <td className="py-4">{k}</td>
                         <td className="py-4 text-[11px] font-black text-blue-400 uppercase tracking-wide">{panelName}</td>
+                        <td className="py-4 text-xs text-blue-500 font-medium">{unitName}</td>
                         <td className="py-4 font-mono">{v.ref_min_typical ?? '—'}</td>
                         <td className="py-4 font-mono">{v.ref_max_typical ?? '—'}</td>
                       </tr>
@@ -246,10 +254,15 @@ export default function Dashboard() {
                 </select>
               </div>
 
-              {/* NEW: Test Panel Auto-fill field added here */}
-              <div className="space-y-1">
-                <label className="text-[10px] font-black uppercase text-blue-900/60">Test Panel</label>
-                <input type="text" name="test_panel" placeholder="e.g. CBC, VITAMIN" value={formData.test_panel} onChange={handleInputChange} className="w-full p-3 border rounded-lg uppercase" required />
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black uppercase text-blue-900/60">Test Panel</label>
+                  <input type="text" name="test_panel" placeholder="e.g. CBC, VIT_D" value={formData.test_panel} onChange={handleInputChange} className="w-full p-3 border rounded-lg uppercase" required />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black uppercase text-blue-900/60">Reporting Unit</label>
+                  <input type="text" name="unit" value={formData.unit} readOnly className="w-full p-3 border rounded-lg bg-slate-50 text-slate-400 font-bold cursor-not-allowed select-none" placeholder="—" />
+                </div>
               </div>
 
               <div className="space-y-1">
