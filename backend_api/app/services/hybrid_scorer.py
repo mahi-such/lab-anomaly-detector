@@ -213,7 +213,7 @@ class HybridScorer:
         if ml_pred in ("NORMAL", "WATCH"):
             z_large = z_score is not None and abs(z_score) >= self.ESCALATE_Z
             d_large = relative_delta is not None and relative_delta >= self.ESCALATE_RELATIVE_DELTA
-            if z_large or d_large:
+            if z_large and d_large:
                 return self._build(
                     label   = "ALERT",
                     conf    = ml_probs.get("ALERT", 0.0),
