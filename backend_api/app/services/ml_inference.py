@@ -12,7 +12,6 @@ logger = logging.getLogger(__name__)
 LOCAL_FALLBACK_DIR = Path(__file__).resolve().parent.parent.parent / "artifacts"
 ARTIFACT_DIR = Path(os.getenv("RELY_ARTIFACT_DIR", LOCAL_FALLBACK_DIR))
 
-# Artifact Loading
 try:
     model          = joblib.load(ARTIFACT_DIR / "xgboost_model.joblib")
     bio_encoder    = joblib.load(ARTIFACT_DIR / "bio_encoder.joblib")
@@ -28,7 +27,6 @@ except Exception as e:
     logger.error(f"Artifact load failure: {e}")
     raise e
 
-# Encoding Helpers
 def _encode_biomarker(code: str) -> int:
     try:
         cleaned = str(code).strip().upper()
@@ -49,17 +47,14 @@ def _encode_panel(panel: str) -> int:
         logger.warning(f"Unseen panel '{panel}'; using UNKNOWN fallback.")
         return int(panel_encoder.transform(["UNKNOWN"])[0]) if "UNKNOWN" in panel_encoder.classes_ else 0
 
-# Main Pipeline
 def predict_anomaly(data: dict) -> dict:
     val = float(data.get("result_value_num", 0.0))
     ref_min = data.get("ref_min_parsed")
     ref_max = data.get("ref_max_parsed")
 
-    # FIX: Use the correct keys from your JSON file
     if ref_min is None or ref_max is None:
         baseline = population_baselines.get(data["biomarker_code"].upper(), {})
         
-        # Pulling correct keys based on your population_baselines.json content
         ref_min = baseline.get("ref_min_typical", 0.0)
         ref_max = baseline.get("ref_max_typical", 100.0)
 

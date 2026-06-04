@@ -1,31 +1,11 @@
 """
-hybrid_scorer.py
-backend_api/app/services/hybrid_scorer.py
-
-Combines StatisticalScorer + XGBoost outputs into a final
-clinical decision. Called by the FastAPI /analyze endpoint
-after ml_inference.predict_anomaly() returns.
-
-Architecture:
-    Raw Lab Input
-          │
-          ├── StatisticalScorer  → stat_severity, z_score, delta, is_panic
-          └── XGBoost            → ml_prediction, ml_probabilities, confidence
-                    │
-              HybridScorer  ← you are here
-                    │
-              Final response to API
-
-Decision priority (top wins, others skipped):
+Decision priority :
     1. Panic override          → always CRITICAL, no rules checked
     2. Soft downgrade to WATCH → AI uncertain, stats normal, borderline delta
-    3. High ML confidence      → ml_proba[CRITICAL] >= 0.85 → trust model
+    3. High ML confidence      → ml_proba[CRITICAL] >= 0.85
     4. Downgrade borderline    → ML=CRITICAL but delta+z say barely abnormal
     5. Stat escalation         → ML=NORMAL/WATCH but stat signals large deviation
     6. Default                 → use ML prediction as-is
-
-Thresholds are class constants — tune them here without touching
-any other file.
 """
 
 from __future__ import annotations
@@ -39,37 +19,25 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class HybridResult:
-    """
-    Final unified output returned by the /analyze endpoint.
-    Every field the React AlertPanel needs is here.
-    """
-    # ── Core decision ──────────────────────────────────────────
     final_label     : str            # NORMAL / WATCH / ALERT / CRITICAL
     confidence      : float          # 0.0 – 1.0  (ML probability of final_label)
     anomaly_score   : float          # 0.0 – 1.0  display-only severity bar
 
-    # ── Rule that fired ───────────────────────────────────────
-    decision_reason : str            # see REASON_* constants below
+    decision_reason : str            
 
-    # ── ML layer ──────────────────────────────────────────────
     ml_prediction   : str
-    ml_probabilities: dict           # {'ALERT':0.04, 'CRITICAL':0.83, ...}
+    ml_probabilities: dict          
 
-    # ── Statistical layer ─────────────────────────────────────
-    stat_severity   : str            # PANIC/SEVERE/MODERATE/MILD/NORMAL/UNKNOWN
+    stat_severity   : str           
     z_score         : Optional[float]
     delta           : float
     is_panic        : bool
 
-    # ── Alert text for React panel ────────────────────────────
     alert_message   : str
 
     def to_dict(self) -> dict:
         return asdict(self)
 
-
-# ── Decision reason constants ─────────────────────────────────
-# Used in logs and API response so frontend can explain the decision
 REASON_PANIC          = "panic_threshold_exceeded"
 REASON_SOFT_DOWNGRADE = "low_confidence_stat_soft_downgrade"
 REASON_HIGH_ML_CONF   = "high_ml_confidence"
@@ -79,21 +47,6 @@ REASON_DEFAULT        = "ml_prediction"
 
 
 class HybridScorer:
-    """
-    Combines StatisticalScorer and XGBoost outputs into one
-    final clinical label. Stateless — safe to call concurrently.
-
-    Usage:
-        hybrid = HybridScorer()
-        result = hybrid.decide(ml_inference_output)
-    """
-
-    # ── Tunable thresholds ────────────────────────────────────
-
-    # Rule 2: Soft downgrade to WATCH when ALL conditions are true
-    #   ml_conf < SOFT_DOWNGRADE_CONF
-    #   stat_sev == "NORMAL"
-    #   |delta| < SOFT_DOWNGRADE_DELTA
     SOFT_DOWNGRADE_CONF           : float = 0.50
     SOFT_DOWNGRADE_RELATIVE_DELTA : float = 0.10
 
@@ -106,10 +59,6 @@ class HybridScorer:
     ESCALATE_RELATIVE_DELTA       : float = 0.75
 
     def decide(self, ml_output: dict) -> HybridResult:
-        """
-        Takes the dict returned by predict_anomaly() and
-        applies the rule chain to produce a final HybridResult.
-        """
         ml_pred    = ml_output["ml_prediction"]
         ml_probs   = ml_output["ml_probabilities"]
         stat_sev   = ml_output["stat_severity"]
@@ -127,8 +76,6 @@ class HybridScorer:
             relative_delta = abs(delta) / (ref_max - ref_min)
 
         #  Rule 1: Panic override 
-        # ml_inference already returned early for panic, but
-        # guard here too so HybridScorer is safe to call standalone
         if is_panic or stat_sev == "PANIC":
             return self._build(
                 label   = "CRITICAL",
@@ -143,15 +90,13 @@ class HybridScorer:
             )
 
         #  Rule 2: Soft downgrade to WATCH 
-        # AI is uncertain, stats are normal, and value is barely 
-        # outside the reference range. Downgrade to preserve visibility
-        # without triggering a false alarm.
+        # AI is uncertain, stats are normal 
         if ml_pred in ("ALERT", "CRITICAL"):
             d_small = relative_delta is not None and relative_delta < self.SOFT_DOWNGRADE_RELATIVE_DELTA
             if ml_conf < self.SOFT_DOWNGRADE_CONF and stat_sev == "NORMAL" and d_small:
                 return self._build(
                     label   = "WATCH",
-                    conf    = ml_conf, # Preserve original ML confidence
+                    conf    = ml_conf, 
                     reason  = REASON_SOFT_DOWNGRADE,
                     ml_pred = ml_pred,
                     ml_probs= ml_probs,
@@ -162,8 +107,6 @@ class HybridScorer:
                 )
 
         #  Rule 3: High ML confidence 
-        # Model is very sure — trust it regardless of stat engine
-        # Threshold: CRITICAL probability >= 0.85
         if ml_crit_p >= self.HIGH_CONF_THRESHOLD:
             return self._build(
                 label   = "CRITICAL",
@@ -179,7 +122,6 @@ class HybridScorer:
 
         #  Rule 4: Downgrade borderline CRITICAL 
         # ML says CRITICAL but both signals say barely abnormal.
-        # Both conditions must be true to downgrade.
         if ml_pred == "CRITICAL":
             z_small = z_score is None or abs(z_score) < self.DOWNGRADE_Z
             d_small = relative_delta is not None and relative_delta < self.DOWNGRADE_RELATIVE_DELTA
@@ -208,8 +150,7 @@ class HybridScorer:
             )
 
         #  Rule 5: Stat escalation 
-        # ML says NORMAL or WATCH but stat engine sees a large
-        # deviation. Either signal alone is enough to escalate.
+        # ML says NORMAL or WATCH but stat engine sees a large deviation
         if ml_pred in ("NORMAL", "WATCH"):
             z_large = z_score is not None and abs(z_score) >= self.ESCALATE_Z
             d_large = relative_delta is not None and relative_delta >= self.ESCALATE_RELATIVE_DELTA
@@ -227,7 +168,7 @@ class HybridScorer:
                 )
 
         #  Rule 6: Default 
-        # No rule fired — use ML prediction as-is
+        # No rule fired —  ML prediction 
         return self._build(
             label   = ml_pred,
             conf    = ml_conf,

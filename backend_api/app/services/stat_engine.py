@@ -183,10 +183,6 @@ class StatisticalScorer:
         z        = compute_zscore(code, value, self.baselines)
         delta    = compute_delta(value, payload.ref_min, payload.ref_max)
         panic    = is_panic_value(code, value, self.panics)
-
-        # SURGICAL FIX: pass delta + boundaries into _severity
-        # so both the Z-score route and the clinical boundary
-        # route run. Previously delta was computed but never used.
         severity = self._severity(
             z_score=z,
             delta=delta,
@@ -235,8 +231,7 @@ class StatisticalScorer:
 
         # Route 1 — population Z-score
         # Defaults to UNKNOWN when no baseline exists.
-        # Previously this short-circuited the entire method,
-        # meaning biomarkers without baselines never got delta-scored.
+
         z_severity = "UNKNOWN"
         if z_score is not None:
             abs_z = abs(z_score)
@@ -263,8 +258,7 @@ class StatisticalScorer:
                     delta_severity = "SEVERE"
 
         # Arbitrate — take the higher risk tier from either route.
-        # UNKNOWN and NORMAL are ranked equally at 0 so that a
-        # missing baseline never suppresses a delta-based finding.
+
         severity_rank = {
             "UNKNOWN":  0,
             "NORMAL":   0,
