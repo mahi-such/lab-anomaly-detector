@@ -21,7 +21,7 @@ export default function Dashboard() {
 
   // --- DATA FETCHING ---
   useEffect(() => {
-    fetch('http://localhost:8000/baselines')
+    fetch('/baselines')
       .then((res) => res.json())
       .then((data) => setBaselines(data))
       .catch((err) => console.error('Failed to load baselines', err));
@@ -87,7 +87,7 @@ export default function Dashboard() {
     };
 
     try {
-      const response = await fetch('http://localhost:8000/analyze', {
+      const response = await fetch('/analyze', {
         method: 'POST', // FIXED: Removed stray 'photo' key mapping parameter
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
