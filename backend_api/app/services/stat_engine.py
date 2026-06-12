@@ -80,17 +80,6 @@ def compute_zscore(
     value: float,
     baselines: dict,
 ) -> Optional[float]:
-    """
-    Return the population Z-score for *value* using pre-built *baselines*.
-
-    Returns None if the biomarker is not in baselines or std is 0.
-
-    Parameters
-    ----------
-    biomarker_code  Code string (will be upper-stripped internally)
-    value           Numeric lab result
-    baselines       Dict loaded from population_baselines.json
-    """
     code = str(biomarker_code).strip().upper()
     bl = baselines.get(code)
     if bl is None:
@@ -165,18 +154,6 @@ class StatisticalScorer:
         return cls(baselines=baselines, panics=panics)
 
     def score(self, payload: LabResultPayload) -> StatisticalScore:
-        """
-        Score a single lab result.
-
-        Parameters
-        ----------
-        payload  LabResultPayload with biomarker_code, result_value_num,
-                 ref_min, ref_max
-
-        Returns
-        -------
-        StatisticalScore
-        """
         code  = str(payload.biomarker_code).strip().upper()
         value = float(payload.result_value_num)
 
@@ -204,17 +181,6 @@ class StatisticalScorer:
         )
 
     def score_batch(self, payloads: list[LabResultPayload]) -> list[StatisticalScore]:
-        """
-        Score multiple lab results.
-
-        Parameters
-        ----------
-        payloads  List of LabResultPayload
-
-        Returns
-        -------
-        List of StatisticalScore in the same order as input
-        """
         return [self.score(p) for p in payloads]
 
     def _severity(
@@ -229,9 +195,6 @@ class StatisticalScorer:
         if panic:
             return "PANIC"
 
-        # Route 1 — population Z-score
-        # Defaults to UNKNOWN when no baseline exists.
-
         z_severity = "UNKNOWN"
         if z_score is not None:
             abs_z = abs(z_score)
@@ -242,9 +205,6 @@ class StatisticalScorer:
             else:
                 z_severity = "SEVERE"
 
-        # Route 2 — percentage breach of the crossed boundary.
-        # Fires even when no population baseline exists,
-        # ensuring reference-range violations are never silently ignored.
         delta_severity = "NORMAL"
         if delta != 0.0:
             boundary = ref_min if value < ref_min else ref_max
@@ -256,8 +216,6 @@ class StatisticalScorer:
                     delta_severity = "MODERATE"
                 else:
                     delta_severity = "SEVERE"
-
-        # Arbitrate — take the higher risk tier from either route.
 
         severity_rank = {
             "UNKNOWN":  0,
