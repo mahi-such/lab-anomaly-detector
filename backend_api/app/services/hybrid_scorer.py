@@ -1,13 +1,3 @@
-"""
-Decision priority :
-    1. Panic override          → always CRITICAL, no rules checked
-    2. Soft downgrade to WATCH → AI uncertain, stats normal, borderline delta
-    3. High ML confidence      → ml_proba[CRITICAL] >= 0.85
-    4. Downgrade borderline    → ML=CRITICAL but delta+z say barely abnormal
-    5. Stat escalation         → ML=NORMAL/WATCH but stat signals large deviation
-    6. Default                 → use ML prediction as-is
-"""
-
 from __future__ import annotations
 
 import logging
@@ -19,9 +9,9 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class HybridResult:
-    final_label     : str            # NORMAL / WATCH / ALERT / CRITICAL
-    confidence      : float          # 0.0 – 1.0  (ML probability of final_label)
-    anomaly_score   : float          # 0.0 – 1.0  display-only severity bar
+    final_label     : str            
+    confidence      : float         
+    anomaly_score   : float          
 
     decision_reason : str            
 
@@ -70,7 +60,6 @@ class HybridScorer:
         ref_min = ml_output.get("ref_min")
         ref_max = ml_output.get("ref_max")
 
-        # Safely calculate scale-invariant deviation. Defaults to None to prevent false triggers.
         relative_delta = None
         if ref_min is not None and ref_max is not None and ref_max > ref_min:
             relative_delta = abs(delta) / (ref_max - ref_min)
@@ -90,7 +79,6 @@ class HybridScorer:
             )
 
         #  Rule 2: Soft downgrade to WATCH 
-        # AI is uncertain, stats are normal 
         if ml_pred in ("ALERT", "CRITICAL"):
             d_small = relative_delta is not None and relative_delta < self.SOFT_DOWNGRADE_RELATIVE_DELTA
             if ml_conf < self.SOFT_DOWNGRADE_CONF and stat_sev == "NORMAL" and d_small:
@@ -121,7 +109,6 @@ class HybridScorer:
             )
 
         #  Rule 4: Downgrade borderline CRITICAL 
-        # ML says CRITICAL but both signals say barely abnormal.
         if ml_pred == "CRITICAL":
             z_small = z_score is None or abs(z_score) < self.DOWNGRADE_Z
             d_small = relative_delta is not None and relative_delta < self.DOWNGRADE_RELATIVE_DELTA
@@ -150,7 +137,6 @@ class HybridScorer:
             )
 
         #  Rule 5: Stat escalation 
-        # ML says NORMAL or WATCH but stat engine sees a large deviation
         if ml_pred in ("NORMAL", "WATCH"):
             z_large = z_score is not None and abs(z_score) >= self.ESCALATE_Z
             d_large = relative_delta is not None and relative_delta >= self.ESCALATE_RELATIVE_DELTA
@@ -167,8 +153,7 @@ class HybridScorer:
                     is_panic= False,
                 )
 
-        #  Rule 6: Default 
-        # No rule fired —  ML prediction 
+        #  Rule 6: Default- ML prediction
         return self._build(
             label   = ml_pred,
             conf    = ml_conf,
@@ -194,7 +179,6 @@ class HybridScorer:
         delta   : float,
         is_panic: bool,
     ) -> HybridResult:
-        """Build the final HybridResult and generate alert message."""
         anomaly_score = self._anomaly_score(ml_probs)
         alert_message = self._alert_message(
             label, stat_sev, z_score, delta, is_panic, reason
@@ -220,11 +204,6 @@ class HybridScorer:
 
     @staticmethod
     def _anomaly_score(ml_probs: dict) -> float:
-        """
-        Continuous 0–1 severity score for the React panel display bar.
-        Not used for the label decision — display only.
-        CRITICAL contributes fully, ALERT contributes half.
-        """
         crit  = ml_probs.get("CRITICAL", 0.0)
         alert = ml_probs.get("ALERT",    0.0)
         return round(min(crit + alert * 0.5, 1.0), 4)
@@ -238,10 +217,6 @@ class HybridScorer:
         is_panic: bool,
         reason  : str,
     ) -> str:
-        """
-        Human-readable alert message for the React AlertPanel.
-        Shown to pathologists alongside the severity badge.
-        """
         if is_panic or reason == REASON_PANIC:
             return (
                 "PANIC VALUE — result crosses clinical emergency threshold. "

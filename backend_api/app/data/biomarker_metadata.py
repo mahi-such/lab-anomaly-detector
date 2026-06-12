@@ -1,7 +1,6 @@
-# Master metadata repository aligned with true dataset feature layout matrix
 BIOMARKER_METADATA = {
     "ABG_PH": {"unit": "pH", "panel": "ABG"},
-    "ABSOLUTE_BASOPHILS_COUNT": {"unit": "/µL", "panel": "CBC"},  # Preserved original unit
+    "ABSOLUTE_BASOPHILS_COUNT": {"unit": "/µL", "panel": "CBC"},  
     "ABSOLUTE_EOSINOPHIL_COUNT": {"unit": "10^3/µL", "panel": "CBC"},
     "ABSOLUTE_LYMPHOCYTE_COUNT": {"unit": "10^3/µL", "panel": "CBC"},
     "ABSOLUTE_MONOCYTE_COUNT": {"unit": "10^3/µL", "panel": "CBC"},
@@ -9,7 +8,7 @@ BIOMARKER_METADATA = {
     "ADA_ADENOSINE_DEAMINASE_BODY_FLUID": {"unit": "unit/L", "panel": None},
     "AG_RATIO": {"unit": "ratio", "panel": "LFT"},
     "ALBUMIN": {"unit": "g/dL", "panel": "LFT"},
-    "ALP": {"unit": "IU/L", "panel": "LFT"},  # Standardized to canonical standard
+    "ALP": {"unit": "IU/L", "panel": "LFT"},  
     "AMYLASE_SERUM": {"unit": "U/L", "panel": None},
     "BASO_PCT": {"unit": "%", "panel": "CBC"},
     "BEECF": {"unit": "mmol/L", "panel": "ABG"},
@@ -29,7 +28,7 @@ BIOMARKER_METADATA = {
     "HC03": {"unit": "mmol/L", "panel": "ABG"},
     "HCT": {"unit": "%PCV", "panel": "ABG"},
     "ICA": {"unit": "mmol/L", "panel": "ABG"},
-    "K": {"unit": "mEq/L", "panel": "ABG"},  # Standardized to mEq/L
+    "K": {"unit": "mEq/L", "panel": "ABG"},  
     "LAC": {"unit": "mmol/L", "panel": "ABG"},
     "LYMPHO_PCT": {"unit": "%", "panel": "CBC"},
     "MAGNESIUM": {"unit": "mg/dL", "panel": None},
@@ -47,13 +46,13 @@ BIOMARKER_METADATA = {
     "PCV": {"unit": "%", "panel": "CBC"},
     "PHOSPHORUS": {"unit": "mg/dL", "panel": "KFT"},
     "PLATELET": {"unit": "10^3/µL", "panel": "CBC"},
-    "POTASSIUM": {"unit": "mEq/L", "panel": "KFT"},  # Standardized to mEq/L
+    "POTASSIUM": {"unit": "mEq/L", "panel": "KFT"},  
     "PROTHROMBINE_TIME_STUDIES": {"unit": "second", "panel": "COAG"},
     "PT_INR_VALUE": {"unit": "ratio", "panel": "COAG"},
     "RBC": {"unit": "10^6/µL", "panel": "CBC"},
     "RDW": {"unit": "%", "panel": "CBC"},
     "S02": {"unit": "%", "panel": "ABG"},
-    "SODIUM": {"unit": "mEq/L", "panel": "KFT"},  # Standardized to mEq/L
+    "SODIUM": {"unit": "mEq/L", "panel": "KFT"},  
     "T3_TOTAL": {"unit": "ng/dL", "panel": "TFT"},
     "T4_TOTAL": {"unit": "ug/dL", "panel": "TFT"},
     "TC02": {"unit": "mmol/L", "panel": "ABG"},
@@ -64,7 +63,7 @@ BIOMARKER_METADATA = {
     "TSH": {"unit": "uIU/mL", "panel": "TFT"},
     "UREA": {"unit": "mg/dL", "panel": "KFT"},
     "URIC_ACID": {"unit": "mg/dL", "panel": "KFT"},
-    "VITAMIN_D_25_HYDROXY": {"unit": "ng/mL", "panel": "VIT_D"},  # Verified true ML feature match
+    "VITAMIN_D_25_HYDROXY": {"unit": "ng/mL", "panel": "VIT_D"},  
     "VLDL": {"unit": "mg/dL", "panel": "LIPID"},
     "WBC": {"unit": "cells/µL", "panel": "CBC"}
 }
