@@ -1,0 +1,42 @@
+CREATE TABLE IF NOT EXISTS biomarker_registry (
+    canonical_code TEXT PRIMARY KEY,
+    display_name TEXT NOT NULL,
+    aliases TEXT,                          -- Comma-separated normalized variations
+    standard_unit TEXT NOT NULL,
+    ref_min REAL,
+    ref_max REAL,
+    panic_low REAL,
+    panic_high REAL,
+    panic_enabled BOOLEAN DEFAULT 0,
+    stat_severe_sms_enabled BOOLEAN DEFAULT 0,
+    sms_enabled BOOLEAN DEFAULT 0,
+    baseline_count INTEGER DEFAULT 0,
+    baseline_mean REAL,
+    baseline_m2 REAL DEFAULT 0.0,          -- Welford Running Sum of Squares
+    baseline_std REAL DEFAULT 0.0,
+    baseline_confidence TEXT DEFAULT 'none',
+    approved BOOLEAN DEFAULT 1,
+    is_active BOOLEAN DEFAULT 1,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS audit_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    request_id TEXT,
+    lab_ref TEXT,
+    raw_name TEXT,
+    canonical_code TEXT,
+    value_num REAL,
+    unit TEXT,
+    ref_min REAL,
+    ref_max REAL,
+    z_score REAL,
+    baseline_confidence TEXT,
+    severity TEXT,
+    is_panic BOOLEAN DEFAULT 0,
+    should_send_sms BOOLEAN DEFAULT 0,
+    resolution_status TEXT,
+    reason TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
