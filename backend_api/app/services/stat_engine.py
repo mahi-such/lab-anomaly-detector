@@ -1,228 +1,97 @@
-from __future__ import annotations
+from typing import Dict, Any
 
-import json
-from dataclasses import asdict, dataclass
-from typing import Optional
-
-PANIC_THRESHOLDS: dict[str, dict] = {
-    # Haematology
-    "HB":          {"low": 5.0,   "high": 20.0,   "unit": "g/dL",    "note": "Critical anaemia / polycythaemia"},
-    "HGB":         {"low": 5.0,   "high": 20.0,   "unit": "g/dL",    "note": "Alt code for haemoglobin"},
-    "HAEMOGLOBIN": {"low": 5.0,   "high": 20.0,   "unit": "g/dL",    "note": "Alt code for haemoglobin"},
-    "WBC":         {"low": 2.0,   "high": 30.0,   "unit": "10³/µL",  "note": "Severe leukopenia / leukocytosis"},
-    "PLT":         {"low": 50.0,  "high": 1000.0, "unit": "10³/µL",  "note": "Bleeding risk / thrombocytosis"},
-    "PLATELETS":   {"low": 50.0,  "high": 1000.0, "unit": "10³/µL",  "note": "Alt code"},
-    # Electrolytes
-    "K":           {"low": 2.5,   "high": 6.5,    "unit": "mmol/L",  "note": "Cardiac arrhythmia risk"},
-    "POTASSIUM":   {"low": 2.5,   "high": 6.5,    "unit": "mmol/L",  "note": "Alt code"},
-    "NA":          {"low": 120.0, "high": 160.0,  "unit": "mmol/L",  "note": "Hypo/hypernatraemia seizure risk"},
-    "SODIUM":      {"low": 120.0, "high": 160.0,  "unit": "mmol/L",  "note": "Alt code"},
-    "CA":          {"low": 6.0,   "high": 13.0,   "unit": "mg/dL",   "note": "Hypo/hypercalcaemia"},
-    "CALCIUM":     {"low": 6.0,   "high": 13.0,   "unit": "mg/dL",   "note": "Alt code"},
-    # Glucose
-    "GLUCOSE_RND": {"low": 40.0,  "high": 500.0,  "unit": "mg/dL",   "note": "Hypoglycaemia / hyperglycaemic crisis"},
-    "GLUCOSE_FBS": {"low": 40.0,  "high": 500.0,  "unit": "mg/dL",   "note": "Fasting glucose panic"},
-    "GLUCOSE":     {"low": 40.0,  "high": 500.0,  "unit": "mg/dL",   "note": "Hypoglycaemia / hyperglycaemic crisis"},
-    # Renal
-    "CREATININE":  {"low": None,  "high": 10.0,   "unit": "mg/dL",   "note": "Acute renal failure"},
-    "CREAT":       {"low": None,  "high": 10.0,   "unit": "mg/dL",   "note": "Alt code"},
-    "BUN":         {"low": None,  "high": 100.0,  "unit": "mg/dL",   "note": "Uraemia"},
-    "UREA":        {"low": None,  "high": 100.0,  "unit": "mg/dL",   "note": "Alt code"},
-    # Lipids
-    "CHOL_TOT":    {"low": None,  "high": 400.0,  "unit": "mg/dL",   "note": "Extreme hypercholesterolaemia"},
-    "LDL":         {"low": None,  "high": 300.0,  "unit": "mg/dL",   "note": "Extreme LDL"},
-    "TRIG":        {"low": None,  "high": 1000.0, "unit": "mg/dL",   "note": "Pancreatitis risk"},
-    # Liver
-    "ALT":         {"low": None,  "high": 1000.0, "unit": "U/L",     "note": "Acute hepatitis / liver failure"},
-    "AST":         {"low": None,  "high": 1000.0, "unit": "U/L",     "note": "Acute hepatitis / liver failure"},
-    "BILIRUBIN":   {"low": None,  "high": 20.0,   "unit": "mg/dL",   "note": "Severe jaundice"},
-    "TBIL":        {"low": None,  "high": 20.0,   "unit": "mg/dL",   "note": "Alt code"},
-    # Thyroid
-    "TSH":         {"low": 0.01,  "high": 100.0,  "unit": "mIU/L",   "note": "Thyroid storm / myxoedema"},
-    # Cardiac
-    "TROPONIN":    {"low": None,  "high": 2.0,    "unit": "ng/mL",   "note": "Myocardial infarction"},
-    "TROP_I":      {"low": None,  "high": 2.0,    "unit": "ng/mL",   "note": "Alt code"},
-    # Coagulation
-    "INR":         {"low": None,  "high": 5.0,    "unit": "ratio",   "note": "Severe anticoagulation"},
-    "PT":          {"low": None,  "high": 60.0,   "unit": "sec",     "note": "Coagulopathy"},
-}
+SEVERITY_RANK = {"UNKNOWN": 0, "NORMAL": 1, "MILD": 2, "MODERATE": 3, "SEVERE": 4}
 
 
-@dataclass
-class LabResultPayload:
+def calculate_biological_severity(value: float, report: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Calculates final biological severity using three independent routes:
+    1. Panic threshold override (fully_resolved only)
+    2. Reference-range delta deviation
+    3. Confidence-gated Z-score (fully_resolved only)
+    """
+    reg = report.get("registry_config") or {}
+    res_status = report.get("resolution_status")
+    eff_min = report.get("effective_ref_min")
+    eff_max = report.get("effective_ref_max")
 
-    biomarker_code:   str
-    result_value_num: float
-    ref_min:          float
-    ref_max:          float
-    dataset_zscore:   Optional[float] = None
-    dataset_is_panic: Optional[int]   = None
+    if res_status == "fully_resolved" and reg.get("panic_enabled"):
+        pl = reg.get("panic_low")
+        ph = reg.get("panic_high")
+        if (pl is not None and value <= pl) or (ph is not None and value >= ph):
+            return {
+                "final_severity": "PANIC",
+                "is_panic": True,
+                "z_score": None,
+                "reason": "Value crossed approved panic threshold."
+            }
 
+    delta_sev = "UNKNOWN"
+    z_sev = "UNKNOWN"
+    z_val = None
+    reason = "No valid reference range available."
 
-@dataclass
-class StatisticalScore:
-
-    biomarker_code:          str
-    value:                   float
-    z_score:                 Optional[float]
-    delta:                   float
-    is_panic:                bool
-    severity_from_stats:     str
-    baseline_available:      bool
-    panic_threshold_defined: bool
-
-    def to_dict(self) -> dict:
-        return asdict(self)
-
-
-def compute_zscore(
-    biomarker_code: str,
-    value: float,
-    baselines: dict,
-) -> Optional[float]:
-    code = str(biomarker_code).strip().upper()
-    bl = baselines.get(code)
-    if bl is None:
-        return None
-    std = bl.get("std")
-    if not std:
-        return None
-    return round((value - bl["mean"]) / std, 4)
-
-
-def compute_delta(
-    value: float,
-    ref_min: float,
-    ref_max: float,
-) -> float:
-
-    if value < ref_min:
-        return round(value - ref_min, 4)
-    if value > ref_max:
-        return round(value - ref_max, 4)
-    return 0.0
-
-
-def is_panic_value(
-    biomarker_code: str,
-    value: float,
-    panic_thresholds: dict = None,
-) -> bool:
-
-    if panic_thresholds is None:
-        panic_thresholds = PANIC_THRESHOLDS
-    code = str(biomarker_code).strip().upper()
-    thresh = panic_thresholds.get(code)
-    if thresh is None:
-        return False
-    low  = thresh.get("low")
-    high = thresh.get("high")
-    if low  is not None and value < low:
-        return True
-    if high is not None and value > high:
-        return True
-    return False
-
-
-class StatisticalScorer:
-
-    _SEVERITY_BANDS = [
-        (0.0, 1.0,          "NORMAL"),
-        (1.0, 2.0,          "MILD"),
-        (2.0, 3.0,          "MODERATE"),
-        (3.0, float("inf"), "SEVERE"),
-    ]
-
-    def __init__(
-        self,
-        baselines: dict,
-        panics: dict = None,
-    ) -> None:
-
-        self.baselines: dict = baselines
-        self.panics: dict    = panics if panics is not None else PANIC_THRESHOLDS
-
-    @classmethod
-    def from_json(
-        cls,
-        json_path: str,
-        panics: dict = None,
-    ) -> "StatisticalScorer":
-
-        with open(json_path) as f:
-            baselines = json.load(f)
-        return cls(baselines=baselines, panics=panics)
-
-    def score(self, payload: LabResultPayload) -> StatisticalScore:
-        code  = str(payload.biomarker_code).strip().upper()
-        value = float(payload.result_value_num)
-
-        z        = compute_zscore(code, value, self.baselines)
-        delta    = compute_delta(value, payload.ref_min, payload.ref_max)
-        panic    = is_panic_value(code, value, self.panics)
-        severity = self._severity(
-            z_score=z,
-            delta=delta,
-            value=value,
-            ref_min=payload.ref_min,
-            ref_max=payload.ref_max,
-            panic=panic,
-        )
-
-        return StatisticalScore(
-            biomarker_code          = code,
-            value                   = value,
-            z_score                 = z,
-            delta                   = delta,
-            is_panic                = panic,
-            severity_from_stats     = severity,
-            baseline_available      = code in self.baselines,
-            panic_threshold_defined = code in self.panics,
-        )
-
-    def score_batch(self, payloads: list[LabResultPayload]) -> list[StatisticalScore]:
-        return [self.score(p) for p in payloads]
-
-    def _severity(
-        self,
-        z_score: Optional[float],
-        delta: float,
-        value: float,
-        ref_min: float,
-        ref_max: float,
-        panic: bool,
-    ) -> str:
-        if panic:
-            return "PANIC"
-
-        z_severity = "UNKNOWN"
-        if z_score is not None:
-            abs_z = abs(z_score)
-            for lo, hi, label in self._SEVERITY_BANDS:
-                if lo <= abs_z < hi:
-                    z_severity = label
-                    break
+    if eff_min is not None and eff_max is not None:
+        span = eff_max - eff_min
+        if span > 0:
+            if eff_min <= value <= eff_max:
+                delta_sev = "NORMAL"
+                reason = "Value inside approved reference range."
             else:
-                z_severity = "SEVERE"
-
-        delta_severity = "NORMAL"
-        if delta != 0.0:
-            boundary = ref_min if value < ref_min else ref_max
-            if boundary > 0:
-                delta_pct = abs(delta) / boundary
-                if delta_pct <= 0.15:
-                    delta_severity = "MILD"
-                elif delta_pct <= 0.35:
-                    delta_severity = "MODERATE"
+                breach = (eff_min - value) if value < eff_min else (value - eff_max)
+                pct = breach / span
+                if pct <= 0.15:
+                    delta_sev = "MILD"
+                elif pct <= 0.35:
+                    delta_sev = "MODERATE"
                 else:
-                    delta_severity = "SEVERE"
+                    delta_sev = "SEVERE"
+                reason = f"Delta route: {pct * 100:.1f}% breach outside reference span."
 
-        severity_rank = {
-            "UNKNOWN":  0,
-            "NORMAL":   0,
-            "MILD":     1,
-            "MODERATE": 2,
-            "SEVERE":   3,
-            "PANIC":    4,
+    if res_status == "fully_resolved" and reg.get("baseline_confidence") in ("moderate", "full"):
+        mean = reg.get("baseline_mean")
+        std = reg.get("baseline_std")
+        if mean is not None and std is not None and std > 0:
+            z_val = (value - mean) / std
+            abs_z = abs(z_val)
+            if abs_z < 1.5:
+                z_sev = "NORMAL"
+            elif abs_z < 2.5:
+                z_sev = "MILD"
+            elif abs_z < 3.5:
+                z_sev = "MODERATE"
+            else:
+                z_sev = "SEVERE"
+
+    if SEVERITY_RANK.get(z_sev, 0) > SEVERITY_RANK.get(delta_sev, 0):
+        return {
+            "final_severity": z_sev,
+            "is_panic": False,
+            "z_score": z_val,
+            "reason": f"Z-score route dominant (Z={z_val:.2f}). {reason}"
         }
-        return max(z_severity, delta_severity, key=lambda s: severity_rank[s])
+
+    return {
+        "final_severity": delta_sev,
+        "is_panic": False,
+        "z_score": z_val,
+        "reason": reason
+    }
+
+
+def evaluate_sms_trigger(report: Dict[str, Any], stat: Dict[str, Any]) -> Dict[str, Any]:
+    reg = report.get("registry_config") or {}
+
+    if report.get("resolution_status") != "fully_resolved":
+        return {"should_send_sms": False, "sms_reason": "Locked: result is not fully resolved."}
+
+    if not reg.get("sms_enabled"):
+        return {"should_send_sms": False, "sms_reason": "Locked: master SMS switch disabled for this biomarker."}
+
+    if stat.get("is_panic"):
+        return {"should_send_sms": True, "sms_reason": "Panic threshold breached."}
+
+    if stat.get("final_severity") == "SEVERE" and reg.get("stat_severe_sms_enabled"):
+        return {"should_send_sms": True, "sms_reason": "SEVERE classification with stat SMS enabled."}
+
+    return {"should_send_sms": False, "sms_reason": "Severity below SMS trigger threshold."}

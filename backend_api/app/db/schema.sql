@@ -1,7 +1,7 @@
 CREATE TABLE IF NOT EXISTS biomarker_registry (
     canonical_code TEXT PRIMARY KEY,
     display_name TEXT NOT NULL,
-    aliases TEXT,                          -- Comma-separated normalized variations
+    aliases TEXT,                          
     standard_unit TEXT NOT NULL,
     ref_min REAL,
     ref_max REAL,
@@ -12,7 +12,7 @@ CREATE TABLE IF NOT EXISTS biomarker_registry (
     sms_enabled BOOLEAN DEFAULT 0,
     baseline_count INTEGER DEFAULT 0,
     baseline_mean REAL,
-    baseline_m2 REAL DEFAULT 0.0,          -- Welford Running Sum of Squares
+    baseline_m2 REAL DEFAULT 0.0,          
     baseline_std REAL DEFAULT 0.0,
     baseline_confidence TEXT DEFAULT 'none',
     approved BOOLEAN DEFAULT 1,

@@ -1,68 +1,70 @@
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel, Field
+from fastapi import FastAPI
+from pydantic import BaseModel
 from typing import Optional
-from fastapi.middleware.cors import CORSMiddleware
+from contextlib import asynccontextmanager
 
-from app.services.ml_inference import predict_anomaly, is_model_ready, population_baselines
-from app.data.biomarker_metadata import BIOMARKER_METADATA
+from app.services.resolution_engine import resolve_incoming_result
+from app.services.stat_engine import calculate_biological_severity, evaluate_sms_trigger
+from app.db.db_service import insert_audit_log, build_alias_cache, update_baseline, init_db
 
-class LabRequest(BaseModel):
-    biomarker_code: str
-    result_value_num: float
-    test_panel: str
-    ref_min_parsed: Optional[float] = Field(default=None)
-    ref_max_parsed: Optional[float] = Field(default=None)
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    init_db()
+    build_alias_cache()
+    yield
 
-app = FastAPI(title="RelyTech LIS Backend Engine")
+app = FastAPI(title="Rely Clinical Engine", lifespan=lifespan)
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["http://localhost:5173"],  # React dev server URL
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+class LabResult(BaseModel):
+    request_id: str
+    lab_ref: str
+    raw_name: str
+    value: float
+    unit: str
+    ref_min: Optional[float] = None
+    ref_max: Optional[float] = None
 
-@app.get("/health")
-async def health_check():
-    return {
-        "status": "ok",
-        "model_ready": is_model_ready()
-    }
 
 @app.post("/analyze")
-async def analyze(request: LabRequest):
-    if not is_model_ready():
-        raise HTTPException(
-            status_code=503,
-            detail="ML model artifacts not loaded. Check /artifacts folder."
-        )
+def analyze_result(payload: LabResult):
+    data = payload.model_dump() if hasattr(payload, "model_dump") else payload.dict()
+    res_report = resolve_incoming_result(data)
 
-    try:
-        print("\nDEBUG PAYLOAD:")
-        print(request.model_dump())
+    stat_report = calculate_biological_severity(data["value"], res_report)
 
-        result = predict_anomaly(request.model_dump())
+    sms_decision = evaluate_sms_trigger(res_report, stat_report)
 
-        return {"data": result}
+    audit_data = {
+        "request_id": data["request_id"],
+        "lab_ref": data["lab_ref"],
+        "raw_name": data["raw_name"],
+        "canonical_code": res_report["canonical_code"],
+        "value_num": data["value"],
+        "unit": data["unit"],
+        "ref_min": res_report["effective_ref_min"],
+        "ref_max": res_report["effective_ref_max"],
+        "z_score": stat_report.get("z_score"),
+        "baseline_confidence": (res_report.get("registry_config") or {}).get("baseline_confidence", "none"),
+        "severity": stat_report["final_severity"],
+        "is_panic": stat_report["is_panic"],
+        "should_send_sms": sms_decision["should_send_sms"],
+        "resolution_status": res_report["resolution_status"],
+        "reason": f"{stat_report['reason']} | {sms_decision['sms_reason']}"
+    }
 
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Inference error: {str(e)}"
-        )
+    insert_audit_log(audit_data)
 
-@app.get("/baselines")
-def get_baselines():
-    combined_baselines = {}
-    for code, baseline_data in population_baselines.items():
-        lookup_code = code.strip().upper()
-        ui_metadata = BIOMARKER_METADATA.get(lookup_code, {"unit": "—", "panel": "UNKNOWN"})
-        
-        combined_baselines[lookup_code] = {
-            **baseline_data,
-            "unit": ui_metadata.get("unit", "—"),
-            # Change "GENERAL" to "UNKNOWN" to match the encoder's explicit token
-            "panel": ui_metadata.get("panel") or "UNKNOWN" 
-        }
-    return combined_baselines
+    if (
+        res_report["resolution_status"] == "fully_resolved"
+        and stat_report["final_severity"] in ("NORMAL", "MILD")
+    ):
+        update_baseline(res_report["canonical_code"], data["value"])
+
+    return {
+        "raw_name": data["raw_name"],
+        "canonical_code": res_report["canonical_code"],
+        "resolution_status": res_report["resolution_status"],
+        "severity": stat_report["final_severity"],
+        "should_send_sms": sms_decision["should_send_sms"],
+        "reason": audit_data["reason"]
+    }
